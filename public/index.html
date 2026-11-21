@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Unemployed Inc.</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <!-- LEFT SIDEBAR (Desktop/Tablet) & FULL INBOX VIEW (Mobile /) -->
+    <aside class="sidebar" id="sidebar">
+      <!-- Desktop macOS Header -->
+      <div class="desktop-sidebar-top">
+        <div class="traffic-lights">
+          <span class="tl red"></span>
+          <span class="tl yellow"></span>
+          <span class="tl green"></span>
+        </div>
+        <button class="icon-circle-btn" id="editNameDesktopBtn" title="Set Display Name">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="4" y1="6" x2="20" y2="6"></line>
+            <line x1="7" y1="12" x2="17" y2="12"></line>
+            <line x1="10" y1="18" x2="14" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Mobile iOS Header (Matches Mobile2.jpeg) -->
+      <div class="mobile-inbox-top">
+        <button class="ios-text-btn" id="editNameMobileBtn">Edit</button>
+        <h1 class="ios-nav-title">Channels</h1>
+        <button class="ios-icon-btn" id="composeMobileBtn" aria-label="Change Name">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Search Input -->
+      <div class="search-wrapper">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" stroke-width="2.2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="searchInput" placeholder="Search" />
+        </div>
+      </div>
+
+      <!-- Mobile Pinned Contacts Grid (Matches Mobile2.jpeg top 3 circles) -->
+      <div class="pinned-grid" id="pinnedGrid">
+        <a href="/supervised" class="pinned-item" data-slug="supervised">
+          <div class="pinned-avatar" style="background: #D8F3DC;">🛡️</div>
+          <span class="pinned-label">#supervised</span>
+        </a>
+        <a href="/unsupervised" class="pinned-item" data-slug="unsupervised">
+          <div class="pinned-avatar" style="background: #FFE5D9;">🚀</div>
+          <span class="pinned-label">#unsupervised</span>
+        </a>
+        <a href="/fs" class="pinned-item" data-slug="fs">
+          <div class="pinned-avatar" style="background: #E0AAFF;">🗽</div>
+          <span class="pinned-label">#free-speech</span>
+        </a>
+      </div>
+
+      <!-- Contacts / Channels List (Matches desktop.jpeg & Mobile2.jpeg) -->
+      <nav class="contact-list" id="contactList">
+        <a href="/supervised" class="contact-row" data-slug="supervised">
+          <div class="contact-avatar" style="background: #D8F3DC;">
+            <span>🛡️</span>
+            <span class="bridge-indicator"></span>
+          </div>
+          <div class="contact-body">
+            <div class="contact-top-line">
+              <span class="contact-name">#supervised</span>
+              <span class="contact-time" id="time-supervised">Now <span class="chevron">›</span></span>
+            </div>
+            <div class="contact-preview" id="preview-supervised">
+              Connected to #supervised on Discord
+            </div>
+          </div>
+        </a>
+
+        <a href="/unsupervised" class="contact-row" data-slug="unsupervised">
+          <div class="contact-avatar" style="background: #FFE5D9;">
+            <span>🚀</span>
+            <span class="bridge-indicator"></span>
+          </div>
+          <div class="contact-body">
+            <div class="contact-top-line">
+              <span class="contact-name">#unsupervised</span>
+              <span class="contact-time" id="time-unsupervised">Now <span class="chevron">›</span></span>
+            </div>
+            <div class="contact-preview" id="preview-unsupervised">
+              Connected to #unsupervised on Discord
+            </div>
+          </div>
+        </a>
+
+        <a href="/fs" class="contact-row" data-slug="fs">
+          <div class="contact-avatar" style="background: #E0AAFF;">
+            <span>🗽</span>
+            <span class="bridge-indicator"></span>
+          </div>
+          <div class="contact-body">
+            <div class="contact-top-line">
+              <span class="contact-name">#free-speech</span>
+              <span class="contact-time" id="time-fs">Now <span class="chevron">›</span></span>
+            </div>
+            <div class="contact-preview" id="preview-fs">
+              Connected to #free-speech on Discord
+            </div>
+          </div>
+        </a>
+      </nav>
+
+      <!-- Subtle User & Discord Bridge Status Footer -->
+      <div class="sidebar-footer">
+        <span id="userLabel">You: <strong>Guest</strong></span>
+        <span class="status-pill" id="discordBridgePill">● Bridge Ready</span>
+      </div>
+    </aside>
+
+    <!-- RIGHT CHAT PANE (Desktop/Tablet) & FULL THREAD VIEW (Mobile /supervised, /unsupervised, /fs) -->
+    <main class="chat-pane" id="chatPane">
+      <!-- Floating Apple Glass Top Header (Matches desktop.jpeg & Mobile1.jpeg) -->
+      <header class="floating-header">
+        <!-- Left Action: Mobile Back Button OR Desktop Compose Pill -->
+        <div class="header-left">
+          <a href="/" class="glass-circle-btn mobile-only-flex" id="mobileBackBtn" aria-label="Back to Messages">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </a>
+          <button class="glass-circle-btn desktop-only-flex" id="desktopNameBtn" title="Change Your Display Name">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Center Contact Avatar + Pill Name (Exact match to desktop.jpeg & Mobile1.jpeg) -->
+        <div class="header-center-stack">
+          <div class="header-contact-avatar" id="headerAvatar" style="background: #D8F3DC;">🛡️</div>
+          <div class="header-contact-pill" id="headerTitlePill">
+            <span id="headerTitleText">#supervised</span>
+            <span class="pill-chevron">›</span>
+          </div>
+        </div>
+
+        <!-- Right Action: FaceTime/Discord Bridge Status Circle -->
+        <div class="header-right">
+          <button class="glass-circle-btn" id="infoBtn" title="Channel Info">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2">
+              <polygon points="23 7 16 12 23 17 23 7"></polygon>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Scrollable Messages Area -->
+      <div class="messages-scroll" id="messagesScroll">
+        <div class="thread-timestamp" id="threadNotice">Today</div>
+        <div class="messages-list" id="messagesList"></div>
+
+        <!-- Typing Bubble -->
+        <div class="typing-row hidden" id="typingRow">
+          <div class="msg-avatar-placeholder"></div>
+          <div class="typing-bubble">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="typing-name" id="typingName"></span>
+        </div>
+      </div>
+
+      <!-- Bottom Floating iMessage Composer (Matches desktop.jpeg & Mobile1.jpeg) -->
+      <footer class="composer-bar">
+        <button type="button" class="plus-circle-btn" id="plusBtn" title="Set Your Name">+</button>
+        <form class="imessage-input-pill" id="messageForm">
+          <input
+            type="text"
+            id="messageInput"
+            placeholder="iMessage"
+            autocomplete="off"
+            required
+          />
+          <button type="submit" class="send-arrow-btn" id="sendBtn" aria-label="Send">
+            ↑
+          </button>
+        </form>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Display Name Modal -->
+  <div class="modal-overlay hidden" id="nameModal">
+    <div class="ios-alert">
+      <h3>Your iMessage Name</h3>
+      <p>Choose the display name shown in the web chat and bridged to Discord.</p>
+      <input type="text" id="nameInput" placeholder="Enter your name" maxlength="24" />
+      <div class="ios-alert-actions">
+        <button type="button" id="cancelNameBtn" class="secondary">Cancel</button>
+        <button type="button" id="saveNameBtn" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

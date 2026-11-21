@@ -1,16 +1,20 @@
 const socket = io();
 
+const STORAGE_USER_KEY = 'bridge_chat_user_v1';
+const STORAGE_HISTORY_USERS_KEY = 'bridge_chat_known_usernames_v1';
+const STORAGE_DARK_MODE_KEY = 'bridge_chat_dark_mode_v1';
+
 const CHANNEL_META = {
   supervised: { slug: 'supervised', path: '/supervised', name: '#supervised', emoji: '🛡️', color: '#D8F3DC' },
   unsupervised: { slug: 'unsupervised', path: '/unsupervised', name: '#unsupervised', emoji: '🚀', color: '#FFE5D9' },
   fs: { slug: 'fs', path: '/fs', name: '#free-speech', emoji: '🗽', color: '#E0AAFF' }
 };
 
-let currentUser = null;
+let currentUser = loadCachedUser();
 let currentSlug = 'supervised';
-let authMode = 'signin';
 let uploadedAvatarDataUrl = null;
 let typingTimer = null;
+let initialHistoryLoadedForRoom = new Set();
 
 // DOM Elements
 const appShell = document.getElementById('appShell');
@@ -27,6 +31,8 @@ const discordBridgeStatus = document.getElementById('discordBridgeStatus');
 const typingRow = document.getElementById('typingRow');
 const typingName = document.getElementById('typingName');
 const searchInput = document.getElementById('searchInput');
+const darkModeToggle = document.getElementById('darkModeToggle');
+const darkModeIcon = document.getElementById('darkModeIcon');
 
 // Attachments & GIPHY
 const plusBtn = document.getElementById('plusBtn');
@@ -46,10 +52,7 @@ const giphyNote = document.getElementById('giphyNote');
 
 // Auth Modal
 const authModal = document.getElementById('authModal');
-const tabSignIn = document.getElementById('tabSignIn');
-const tabSignUp = document.getElementById('tabSignUp');
-const signUpFields = document.getElementById('signUpFields');
-const authSubtitle = document.getElementById('authSubtitle');
+const closeAuthBtn = document.getElementById('closeAuthBtn');
 const authForm = document.getElementById('authForm');
 const firstNameInput = document.getElementById('firstNameInput');
 const usernameInput = document.getElementById('usernameInput');
@@ -62,6 +65,102 @@ const devicesSection = document.getElementById('devicesSection');
 const devicesList = document.getElementById('devicesList');
 
 // =========================================================
+// LOCAL STORAGE HELPERS & DARK MODE
+// =========================================================
+function loadCachedUser() {
+  try {
+    const raw = localStorage.getItem(STORAGE_USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedUser(user) {
+  currentUser = user;
+  try {
+    if (user) {
+      localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(user));
+      const known = loadKnownUsernames();
+      if (!known.includes(user.username.toLowerCase())) {
+        known.push(user.username.toLowerCase());
+        localStorage.setItem(STORAGE_HISTORY_USERS_KEY, JSON.stringify(known));
+      }
+    } else {
+      localStorage.removeItem(STORAGE_USER_KEY);
+    }
+  } catch {}
+  updateUserUI();
+  renderDevicesList();
+}
+
+function loadKnownUsernames() {
+  try {
+    const raw = localStorage.getItem(STORAGE_HISTORY_USERS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function applyDarkMode(enabled) {
+  document.body.classList.toggle('dark-mode', enabled);
+  darkModeIcon.textContent = enabled ? '☀️' : '🌙';
+  try {
+    localStorage.setItem(STORAGE_DARK_MODE_KEY, enabled ? '1' : '0');
+  } catch {}
+}
+
+darkModeToggle.addEventListener('click', () => {
+  const next = !document.body.classList.contains('dark-mode');
+  applyDarkMode(next);
+});
+
+applyDarkMode(localStorage.getItem(STORAGE_DARK_MODE_KEY) === '1');
+
+// =========================================================
+// NOTIFICATIONS (App & Discord messages)
+// =========================================================
+async function requestNotificationPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    try {
+      await Notification.requestPermission();
+    } catch {}
+  }
+}
+
+function triggerMessageNotification(msg) {
+  const isDiscord = msg.source === 'discord';
+  const isMine = !isDiscord && currentUser && msg.sender === currentUser.username;
+  if (isMine) return;
+
+  const chName = CHANNEL_META[msg.room]?.name || `#${msg.room}`;
+  const originLabel = isDiscord ? 'Discord' : 'App';
+  const title = `${msg.sender} (${originLabel}) • ${chName}`;
+  const body =
+    msg.text ||
+    (msg.attachments?.[0]?.name ? `Sent ${msg.attachments[0].name}` : 'Sent an attachment');
+
+  if ('Notification' in window && Notification.permission === 'granted') {
+    if (document.hidden || msg.room !== currentSlug) {
+      try {
+        const n = new Notification(title, {
+          body,
+          icon: msg.avatar || undefined,
+          tag: `${msg.room}-${msg.id}`
+        });
+        n.onclick = () => {
+          window.focus();
+          navigateTo(CHANNEL_META[msg.room]?.path || '/supervised');
+          n.close();
+        };
+      } catch {}
+    }
+  }
+}
+
+// =========================================================
 // MARKDOWN FORMATTING (Bold, Italic, Bold-Italic)
 // =========================================================
 function escapeHtml(str) {
@@ -72,44 +171,16 @@ function escapeHtml(str) {
 
 function formatRichText(raw) {
   let out = escapeHtml(raw);
-  // Bold + Italic: ***text***
   out = out.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-  // Bold: **text**
   out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  // Italic: *text* or _text_
   out = out.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
   out = out.replace(/\b_(.+?)_\b/g, '<em>$1</em>');
   return out;
 }
 
 // =========================================================
-// AUTH & TRUSTED DEVICES
+// UNIFIED AUTH FLOW
 // =========================================================
-function setAuthMode(mode) {
-  authMode = mode;
-  authError.classList.add('hidden');
-  authError.textContent = '';
-
-  if (mode === 'signup') {
-    tabSignUp.classList.add('active');
-    tabSignIn.classList.remove('active');
-    signUpFields.classList.remove('hidden');
-    authSubmitBtn.textContent = 'Create Account';
-    authSubtitle.innerHTML =
-      'Register your username, first name, and password. Your device stays remembered.';
-  } else {
-    tabSignIn.classList.add('active');
-    tabSignUp.classList.remove('active');
-    signUpFields.classList.add('hidden');
-    authSubmitBtn.textContent = 'Sign In';
-    authSubtitle.innerHTML =
-      'Sign in to chat as <strong>[USERNAME] ([FIRST-NAME])</strong> and stay logged in on this device.';
-  }
-}
-
-tabSignIn.addEventListener('click', () => setAuthMode('signin'));
-tabSignUp.addEventListener('click', () => setAuthMode('signup'));
-
 avatarFileInput.addEventListener('change', (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
@@ -147,17 +218,18 @@ function renderDevicesList() {
     row.querySelector('.device-revoke-btn').addEventListener('click', async () => {
       const res = await fetch('/api/auth/revoke-device', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(currentUser?.authToken ? { 'x-auth-token': currentUser.authToken } : {})
+        },
         body: JSON.stringify({ deviceId: dev.deviceId })
       });
       const data = await res.json();
       if (res.status === 401 || !data.user) {
-        currentUser = null;
-        updateUserUI();
+        saveCachedUser(null);
         authModal.classList.remove('hidden');
       } else {
-        currentUser = data.user;
-        renderDevicesList();
+        saveCachedUser(data.user);
       }
     });
     devicesList.appendChild(row);
@@ -168,66 +240,86 @@ authForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   authError.classList.add('hidden');
 
-  const endpoint = authMode === 'signup' ? '/api/auth/signup' : '/api/auth/signin';
-  const body =
-    authMode === 'signup'
-      ? {
-          firstName: firstNameInput.value.trim(),
-          username: usernameInput.value.trim(),
-          password: passwordInput.value,
-          avatarUrl: uploadedAvatarDataUrl
-        }
-      : {
-          username: usernameInput.value.trim(),
-          password: passwordInput.value
-        };
+  const uname = usernameInput.value.trim();
+  const fname = firstNameInput.value.trim();
+  const pw = passwordInput.value;
+  const knownUsernames = loadKnownUsernames();
+  const cachedKnownUser = knownUsernames.includes(uname.toLowerCase());
+
+  authSubmitBtn.disabled = true;
+  authSubmitBtn.textContent = 'Checking...';
 
   try {
-    const res = await fetch(endpoint, {
+    const res = await fetch('/api/auth/enter', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        username: uname,
+        firstName: fname,
+        password: pw,
+        cachedKnownUser,
+        avatarUrl: uploadedAvatarDataUrl || currentUser?.avatarUrl || null
+      })
     });
     const data = await res.json();
+
     if (!res.ok) {
-      authError.textContent = data.error || 'Authentication failed.';
+      authError.textContent = data.error || 'Could not continue.';
       authError.classList.remove('hidden');
       return;
     }
 
-    currentUser = data.user;
-    updateUserUI();
-    renderDevicesList();
-    authModal.classList.add('hidden');
+    saveCachedUser(data.user);
     passwordInput.value = '';
+    authModal.classList.add('hidden');
+    requestNotificationPermission();
   } catch {
     authError.textContent = 'Network error connecting to server.';
     authError.classList.remove('hidden');
+  } finally {
+    authSubmitBtn.disabled = false;
+    authSubmitBtn.textContent = 'Continue';
   }
 });
 
 signOutBtn.addEventListener('click', async () => {
-  await fetch('/api/auth/signout', { method: 'POST' });
-  currentUser = null;
-  updateUserUI();
-  renderDevicesList();
-  setAuthMode('signin');
+  await fetch('/api/auth/signout', {
+    method: 'POST',
+    headers: currentUser?.authToken ? { 'x-auth-token': currentUser.authToken } : {}
+  });
+  saveCachedUser(null);
+  usernameInput.value = '';
+  firstNameInput.value = '';
+  passwordInput.value = '';
   authModal.classList.remove('hidden');
+});
+
+closeAuthBtn.addEventListener('click', () => {
+  if (currentUser) {
+    authModal.classList.add('hidden');
+  }
 });
 
 function updateUserUI() {
   if (currentUser) {
     footerUserText.textContent = `${currentUser.username} (${currentUser.firstName})`;
     signOutBtn.classList.remove('hidden');
+    closeAuthBtn.classList.remove('hidden');
+    usernameInput.value = currentUser.username;
+    firstNameInput.value = currentUser.firstName;
     if (currentUser.avatarUrl) {
-      footerAvatar.innerHTML = `<img src="${currentUser.avatarUrl}" alt="" />`;
+      footerAvatar.innerHTML = `<img src="${escapeHtml(currentUser.avatarUrl)}" alt="" />`;
+      avatarPreview.innerHTML = `<img src="${escapeHtml(currentUser.avatarUrl)}" alt="" />`;
     } else {
       footerAvatar.textContent = currentUser.firstName[0].toUpperCase();
+      avatarPreview.textContent = currentUser.firstName[0].toUpperCase();
     }
   } else {
     footerUserText.textContent = 'Not signed in';
     footerAvatar.textContent = '?';
+    avatarPreview.textContent = '?';
     signOutBtn.classList.add('hidden');
+    closeAuthBtn.classList.add('hidden');
   }
 }
 
@@ -242,13 +334,27 @@ function updateUserUI() {
 });
 
 async function checkSession() {
-  const res = await fetch('/api/auth/me');
-  const data = await res.json();
-  currentUser = data.user;
-  updateUserUI();
-  renderDevicesList();
-  if (!currentUser) {
-    authModal.classList.remove('hidden');
+  if (currentUser) {
+    updateUserUI();
+    renderDevicesList();
+    authModal.classList.add('hidden');
+    requestNotificationPermission();
+  }
+
+  try {
+    const query = currentUser?.authToken ? `?token=${encodeURIComponent(currentUser.authToken)}` : '';
+    const res = await fetch(`/api/auth/me${query}`);
+    const data = await res.json();
+    if (data.user) {
+      saveCachedUser(data.user);
+      authModal.classList.add('hidden');
+    } else if (!currentUser) {
+      authModal.classList.remove('hidden');
+    }
+  } catch {
+    if (!currentUser) {
+      authModal.classList.remove('hidden');
+    }
   }
 }
 
@@ -286,6 +392,7 @@ async function handleFileUpload(file) {
 
   const res = await fetch('/api/upload', {
     method: 'POST',
+    headers: currentUser?.authToken ? { 'x-auth-token': currentUser.authToken } : {},
     body: formData
   });
   const data = await res.json();
@@ -307,7 +414,9 @@ async function handleFileUpload(file) {
         isVideo: data.kind === 'video',
         isFile: data.kind === 'file'
       }
-    ]
+    ],
+    authToken: currentUser?.authToken,
+    username: currentUser?.username
   });
 }
 
@@ -361,7 +470,9 @@ async function loadGifs(query) {
             isVideo: false,
             isFile: false
           }
-        ]
+        ],
+        authToken: currentUser?.authToken,
+        username: currentUser?.username
       });
       giphyModal.classList.add('hidden');
     });
@@ -440,20 +551,17 @@ searchInput.addEventListener('input', () => {
 
 // =========================================================
 // MESSAGE RENDERING:
-// - Outgoing (You) = Dark Red
-// - Other App Users = Black
-// - Discord = Purple
+// - All App messages = Red
+// - All Discord messages = Purple
 // =========================================================
 function appendMessage(msg, isLastMine = false) {
   const isDiscord = msg.source === 'discord';
   const isMine = !isDiscord && currentUser && msg.sender === currentUser.username;
 
-  let colorClass = 'from-app-other';
-  if (isDiscord) colorClass = 'from-discord';
-  else if (isMine) colorClass = 'from-me';
-
   const group = document.createElement('div');
-  group.className = `msg-group ${isMine ? 'outgoing' : 'incoming'} ${colorClass}`;
+  group.className = `msg-group ${isMine ? 'outgoing' : 'incoming'} ${
+    isDiscord ? 'from-discord' : 'from-app'
+  }`;
 
   const renderBubbleContent = (bubbleEl) => {
     if (msg.text) {
@@ -502,7 +610,7 @@ function appendMessage(msg, isLastMine = false) {
 
     const av = document.createElement('div');
     av.className = 'sender-mini-avatar';
-    av.style.background = isDiscord ? '#5865F2' : '#141417';
+    av.style.background = isDiscord ? '#5865F2' : '#8B1E1E';
     if (msg.avatar) {
       av.innerHTML = `<img src="${escapeHtml(msg.avatar)}" alt="" />`;
     } else {
@@ -571,6 +679,7 @@ socket.on('history', ({ room, messages }) => {
   messages.forEach((m, idx) => {
     appendMessage(m, idx === messages.length - 1);
   });
+  initialHistoryLoadedForRoom.add(room);
 });
 
 socket.on('chat_message', (msg) => {
@@ -579,18 +688,23 @@ socket.on('chat_message', (msg) => {
     document.querySelectorAll('.receipt-status').forEach((el) => el.remove());
     appendMessage(msg, true);
   }
+  if (initialHistoryLoadedForRoom.has(msg.room)) {
+    triggerMessageNotification(msg);
+  }
 });
 
 socket.on('thread_preview', (msg) => {
   updatePreview(msg);
 });
 
-messageForm.addEventListener('submit', (e) => {
+messageForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!currentUser) {
     authModal.classList.remove('hidden');
     return;
   }
+
+  await requestNotificationPermission();
 
   const text = messageInput.value.trim();
   if (!text) return;
@@ -598,19 +712,36 @@ messageForm.addEventListener('submit', (e) => {
   socket.emit('send_message', {
     room: currentSlug,
     text,
-    attachments: []
+    attachments: [],
+    authToken: currentUser.authToken,
+    username: currentUser.username
   });
 
   messageInput.value = '';
-  socket.emit('typing', { room: currentSlug, isTyping: false });
+  socket.emit('typing', {
+    room: currentSlug,
+    isTyping: false,
+    authToken: currentUser.authToken,
+    username: currentUser.username
+  });
 });
 
 messageInput.addEventListener('input', () => {
   if (!currentUser) return;
-  socket.emit('typing', { room: currentSlug, isTyping: true });
+  socket.emit('typing', {
+    room: currentSlug,
+    isTyping: true,
+    authToken: currentUser.authToken,
+    username: currentUser.username
+  });
   clearTimeout(typingTimer);
   typingTimer = setTimeout(() => {
-    socket.emit('typing', { room: currentSlug, isTyping: false });
+    socket.emit('typing', {
+      room: currentSlug,
+      isTyping: false,
+      authToken: currentUser.authToken,
+      username: currentUser.username
+    });
   }, 1500);
 });
 

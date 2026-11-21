@@ -1,7 +1,7 @@
 {
   "name": "Unemployed Inc. App",
   "version": "2.5.0",
-  "description": "Discord Server standalone app",
+  "description": "Discord Server Standalone App",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,7 +9,7 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "discord.js": "^14.16.3",
-    "express": "^4.21.1",
+    "express": "4.21.1",
     "express-session": "^1.18.1",
     "multer": "^1.4.5-lts.1",
     "socket.io": "^4.8.1"

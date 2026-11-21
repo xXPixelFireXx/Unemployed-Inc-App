@@ -58,7 +58,6 @@ function writeFileLinks(links) {
   writeJson(FILES_FILE, links);
 }
 
-// Clean up expired 3-hour file download links and files on disk
 function cleanupExpiredFiles() {
   const now = Date.now();
   const links = readFileLinks();
@@ -91,6 +90,7 @@ function sanitizeUser(user) {
     firstName: user.firstName,
     username: user.username,
     avatarUrl: user.avatarUrl || null,
+    authToken: user.authToken || null,
     trustedDevices: (user.trustedDevices || []).map((d) => ({
       deviceId: d.deviceId,
       label: d.label,
@@ -126,14 +126,18 @@ app.use(express.static(path.join(__dirname, 'public')));
 // =========================================================
 function attachTrustedDevice(user, req, res, existingDeviceId = null) {
   user.trustedDevices = user.trustedDevices || [];
+  if (!user.authToken) {
+    user.authToken = crypto.randomBytes(24).toString('hex');
+  }
   const ua = req.headers['user-agent'] || 'Unknown Device';
-  const shortLabel = ua.includes('Mobile') || ua.includes('iPhone') || ua.includes('Android')
-    ? 'Mobile Browser'
-    : ua.includes('Mac')
-    ? 'Mac Browser'
-    : ua.includes('Windows')
-    ? 'Windows Browser'
-    : 'Web Browser';
+  const shortLabel =
+    ua.includes('Mobile') || ua.includes('iPhone') || ua.includes('Android')
+      ? 'Mobile Browser'
+      : ua.includes('Mac')
+      ? 'Mac Browser'
+      : ua.includes('Windows')
+      ? 'Windows Browser'
+      : 'Web Browser';
 
   const deviceId = existingDeviceId || crypto.randomUUID();
   const existingIdx = user.trustedDevices.findIndex((d) => d.deviceId === deviceId);
@@ -169,12 +173,16 @@ function getCookie(req, name) {
   return null;
 }
 
-function resolveAuthenticatedUser(req, res) {
+function resolveAuthenticatedUser(req, res, explicitToken = null) {
   const users = readUsers();
   const deviceId = getCookie(req, 'trusted_device_id');
+  const bearerOrToken =
+    explicitToken ||
+    req.headers['x-auth-token'] ||
+    (req.body && req.body.authToken) ||
+    null;
 
-  // 1. Active session
-  if (req.session.userId) {
+  if (req.session && req.session.userId) {
     const user = users.find((u) => u.id === req.session.userId);
     if (user) {
       attachTrustedDevice(user, req, res, deviceId);
@@ -183,13 +191,22 @@ function resolveAuthenticatedUser(req, res) {
     }
   }
 
-  // 2. Trusted device cookie fallback (keeps user logged in on known devices)
   if (deviceId) {
     const user = users.find((u) =>
       (u.trustedDevices || []).some((d) => d.deviceId === deviceId)
     );
     if (user) {
-      req.session.userId = user.id;
+      if (req.session) req.session.userId = user.id;
+      attachTrustedDevice(user, req, res, deviceId);
+      writeUsers(users);
+      return user;
+    }
+  }
+
+  if (bearerOrToken) {
+    const user = users.find((u) => u.authToken && u.authToken === String(bearerOrToken));
+    if (user) {
+      if (req.session) req.session.userId = user.id;
       attachTrustedDevice(user, req, res, deviceId);
       writeUsers(users);
       return user;
@@ -200,38 +217,78 @@ function resolveAuthenticatedUser(req, res) {
 }
 
 app.get('/api/auth/me', (req, res) => {
-  const user = resolveAuthenticatedUser(req, res);
+  const token = req.query.token ? String(req.query.token) : null;
+  const user = resolveAuthenticatedUser(req, res, token);
   if (!user) {
     return res.json({ user: null });
   }
   return res.json({ user: sanitizeUser(user) });
 });
 
-app.post('/api/auth/signup', async (req, res) => {
+// Unified Sign-In / Sign-Up endpoint:
+// Checks if the user already has an account or prior chat history; signs in if found, or creates account if new.
+app.post('/api/auth/enter', async (req, res) => {
   try {
     const firstName = String(req.body.firstName || '').trim();
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
+    const cachedKnownUser = Boolean(req.body.cachedKnownUser);
     const avatarUrl =
       typeof req.body.avatarUrl === 'string' && req.body.avatarUrl.startsWith('data:image/')
         ? req.body.avatarUrl
         : null;
 
-    if (!firstName || !username || !password) {
-      return res.status(400).json({ error: 'First name, username, and password are required.' });
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required.' });
     }
     if (!/^[a-zA-Z0-9_.-]{2,24}$/.test(username)) {
       return res.status(400).json({
         error: 'Username must be 2–24 characters (letters, numbers, _, ., -).'
       });
     }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
-    }
 
     const users = readUsers();
-    if (users.some((u) => u.username.toLowerCase() === username.toLowerCase())) {
-      return res.status(409).json({ error: 'Username already exists.' });
+    const existingUser = users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+
+    if (existingUser) {
+      // Existing account: verify password (or allow if browser cache & firstName match when password omitted)
+      let authenticated = false;
+      if (password) {
+        authenticated = await bcrypt.compare(password, existingUser.passwordHash);
+      } else if (
+        cachedKnownUser &&
+        firstName &&
+        firstName.toLowerCase() === String(existingUser.firstName || '').toLowerCase()
+      ) {
+        authenticated = true;
+      }
+
+      if (!authenticated) {
+        return res.status(401).json({
+          error: 'Account found for this username — please enter your password.'
+        });
+      }
+
+      if (firstName && firstName !== existingUser.firstName) {
+        existingUser.firstName = firstName;
+      }
+      if (avatarUrl) {
+        existingUser.avatarUrl = avatarUrl;
+      }
+
+      req.session.userId = existingUser.id;
+      attachTrustedDevice(existingUser, req, res);
+      writeUsers(users);
+
+      return res.json({ user: sanitizeUser(existingUser), mode: 'signin' });
+    }
+
+    // New account: requires firstName and password
+    if (!firstName) {
+      return res.status(400).json({ error: 'First name is required for a new account.' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters for a new account.' });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -241,6 +298,7 @@ app.post('/api/auth/signup', async (req, res) => {
       username,
       passwordHash,
       avatarUrl,
+      authToken: crypto.randomBytes(24).toString('hex'),
       trustedDevices: [],
       createdAt: Date.now()
     };
@@ -250,41 +308,10 @@ app.post('/api/auth/signup', async (req, res) => {
     users.push(newUser);
     writeUsers(users);
 
-    return res.status(201).json({ user: sanitizeUser(newUser) });
+    return res.status(201).json({ user: sanitizeUser(newUser), mode: 'signup' });
   } catch (err) {
-    console.error('[Signup Error]:', err);
-    return res.status(500).json({ error: 'Failed to create account.' });
-  }
-});
-
-app.post('/api/auth/signin', async (req, res) => {
-  try {
-    const username = String(req.body.username || '').trim();
-    const password = String(req.body.password || '');
-
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required.' });
-    }
-
-    const users = readUsers();
-    const user = users.find((u) => u.username.toLowerCase() === username.toLowerCase());
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid username or password.' });
-    }
-
-    const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) {
-      return res.status(401).json({ error: 'Invalid username or password.' });
-    }
-
-    req.session.userId = user.id;
-    attachTrustedDevice(user, req, res);
-    writeUsers(users);
-
-    return res.json({ user: sanitizeUser(user) });
-  } catch (err) {
-    console.error('[Signin Error]:', err);
-    return res.status(500).json({ error: 'Sign in failed.' });
+    console.error('[Auth Enter Error]:', err);
+    return res.status(500).json({ error: 'Failed to sign in or create account.' });
   }
 });
 
@@ -311,7 +338,7 @@ app.post('/api/auth/revoke-device', (req, res) => {
 
 app.post('/api/auth/signout', (req, res) => {
   const deviceId = getCookie(req, 'trusted_device_id');
-  if (req.session.userId && deviceId) {
+  if (req.session && req.session.userId && deviceId) {
     const users = readUsers();
     const dbUser = users.find((u) => u.id === req.session.userId);
     if (dbUser) {
@@ -337,12 +364,13 @@ const upload = multer({
       cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${safeExt}`);
     }
   }),
-  limits: { fileSize: 25 * 1024 * 1024 } // 25MB max
+  limits: { fileSize: 25 * 1024 * 1024 }
 });
 
 app.post('/api/upload', upload.single('file'), (req, res) => {
   cleanupExpiredFiles();
-  const user = resolveAuthenticatedUser(req, res);
+  const token = req.headers['x-auth-token'] || (req.body && req.body.authToken) || null;
+  const user = resolveAuthenticatedUser(req, res, token);
   if (!user) {
     if (req.file) fs.unlink(req.file.path, () => {});
     return res.status(401).json({ error: 'Sign in required to upload files.' });
@@ -351,7 +379,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
     return res.status(400).json({ error: 'No file received.' });
   }
 
-  const token = crypto.randomBytes(16).toString('hex');
+  const fileToken = crypto.randomBytes(16).toString('hex');
   const expiresAt = Date.now() + THREE_HOURS_MS;
   const mime = req.file.mimetype || 'application/octet-stream';
 
@@ -360,8 +388,8 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   else if (mime.startsWith('video/')) kind = 'video';
 
   const links = readFileLinks();
-  links[token] = {
-    token,
+  links[fileToken] = {
+    token: fileToken,
     storedName: req.file.filename,
     originalName: req.file.originalname || 'file',
     mimeType: mime,
@@ -370,11 +398,10 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   };
   writeFileLinks(links);
 
-  const publicUrl = `/dl/${token}`;
   return res.json({
-    token,
-    url: publicUrl,
-    originalName: links[token].originalName,
+    token: fileToken,
+    url: `/dl/${fileToken}`,
+    originalName: links[fileToken].originalName,
     kind,
     expiresAt
   });
@@ -402,7 +429,6 @@ app.get('/dl/:token', (req, res) => {
   return res.download(filePath, info.originalName);
 });
 
-// GIPHY Search Endpoint
 app.get('/api/giphy', async (req, res) => {
   const q = String(req.query.q || 'funny reaction').trim().slice(0, 60);
   const apiKey = process.env.GIPHY_API_KEY || '';
@@ -436,11 +462,13 @@ app.get('/api/giphy', async (req, res) => {
     )}&q=${encodeURIComponent(q)}&limit=12&rating=pg-13`;
     const r = await fetch(endpoint);
     const json = await r.json();
-    const gifs = (json.data || []).map((g) => ({
-      id: g.id,
-      title: g.title || 'GIF',
-      url: g.images?.fixed_height?.url || g.images?.original?.url
-    })).filter((g) => Boolean(g.url));
+    const gifs = (json.data || [])
+      .map((g) => ({
+        id: g.id,
+        title: g.title || 'GIF',
+        url: g.images?.fixed_height?.url || g.images?.original?.url
+      }))
+      .filter((g) => Boolean(g.url));
 
     return res.json({ gifs });
   } catch (err) {
@@ -486,10 +514,9 @@ Object.values(CHANNELS).forEach((ch) => {
   }
 });
 
-// Caches for translating pings in both directions
-const discordUserIdToName = new Map(); // id -> username
-const discordNameToUserId = new Map(); // lowercase username/displayName -> id
-const discordChannelIdToName = new Map(); // id -> channelName
+const discordUserIdToName = new Map();
+const discordNameToUserId = new Map();
+const discordChannelIdToName = new Map();
 
 const messageHistory = {
   supervised: [],
@@ -524,7 +551,6 @@ async function cacheGuildDirectory(guild) {
   } catch {}
 }
 
-// Discord -> App: translate <@123>, <@!123>, <#123> to readable @username / #channel
 function translateDiscordPingsToReadable(text, message) {
   if (!text) return '';
   if (message?.mentions?.users) {
@@ -550,7 +576,6 @@ function translateDiscordPingsToReadable(text, message) {
     });
 }
 
-// App -> Discord: translate @username back into <@discordUserId> when known, keep @everyone / @here
 function translateAppPingsToDiscord(text) {
   if (!text) return '';
   return text.replace(/@([a-zA-Z0-9_.-]{1,32})/g, (fullMatch, handle) => {
@@ -626,8 +651,29 @@ if (DISCORD_TOKEN) {
   discordClient.login(DISCORD_TOKEN).catch((err) => {
     console.error('[Discord Login Error]:', err.message);
   });
-} else {
-  console.log('[Server] DISCORD_TOKEN not configured.');
+}
+
+function resolveSocketUser(socket, data = {}) {
+  const users = readUsers();
+  const sessionUserId = socket.request.session?.userId;
+  if (sessionUserId) {
+    const u = users.find((x) => x.id === sessionUserId);
+    if (u) return u;
+  }
+  if (data.authToken) {
+    const u = users.find((x) => x.authToken === String(data.authToken));
+    if (u) {
+      if (socket.request.session) socket.request.session.userId = u.id;
+      return u;
+    }
+  }
+  if (data.username) {
+    const u = users.find(
+      (x) => x.username.toLowerCase() === String(data.username).trim().toLowerCase()
+    );
+    if (u) return u;
+  }
+  return null;
 }
 
 // =========================================================
@@ -645,95 +691,4 @@ io.on('connection', (socket) => {
     previews
   });
 
-  socket.on('join_room', (roomSlug) => {
-    if (!CHANNELS[roomSlug]) return;
-    socket.join(roomSlug);
-    socket.emit('history', {
-      room: roomSlug,
-      messages: messageHistory[roomSlug] || []
-    });
-  });
-
-  socket.on('send_message', async (data) => {
-    const sessionUserId = socket.request.session?.userId;
-    const users = readUsers();
-    const user = users.find((u) => u.id === sessionUserId);
-    if (!user) {
-      socket.emit('auth_required');
-      return;
-    }
-
-    const room = data.room;
-    const channelConfig = CHANNELS[room];
-    const cleanText = String(data.text || '').trim();
-    const attachments = Array.isArray(data.attachments) ? data.attachments.slice(0, 5) : [];
-
-    if (!channelConfig || (!cleanText && attachments.length === 0)) return;
-
-    const payload = {
-      id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      room,
-      sender: user.username,
-      firstName: user.firstName,
-      avatar: user.avatarUrl || null,
-      text: cleanText,
-      attachments,
-      source: 'app',
-      timestamp: Date.now()
-    };
-
-    saveMessage(room, payload);
-    io.to(room).emit('chat_message', payload);
-    io.emit('thread_preview', payload);
-
-    // Relay to Discord as "[USERNAME] ([FIRST-NAME]): message"
-    if (discordReady && channelConfig.discordChannelId) {
-      try {
-        const discordChannel = await discordClient.channels.fetch(channelConfig.discordChannelId);
-        if (discordChannel) {
-          if (discordChannel.guild) await cacheGuildDirectory(discordChannel.guild);
-          const translatedBody = translateAppPingsToDiscord(cleanText);
-          const attachmentLines = attachments
-            .map((att) =>
-              att.fullUrl ? att.fullUrl : `${att.name || 'File'}: ${att.url}`
-            )
-            .join('\n');
-
-          const combined = [translatedBody, attachmentLines].filter(Boolean).join('\n');
-          await discordChannel.send({
-            content: `**[${user.username} (${user.firstName})]:** ${combined}`.slice(0, 1990),
-            allowedMentions: { parse: ['users', 'roles', 'everyone'] }
-          });
-        }
-      } catch (err) {
-        console.error(`[Discord Relay Error -> ${channelConfig.name}]:`, err.message);
-      }
-    }
-  });
-
-  socket.on('typing', ({ room, isTyping }) => {
-    const sessionUserId = socket.request.session?.userId;
-    const users = readUsers();
-    const user = users.find((u) => u.id === sessionUserId);
-    if (CHANNELS[room] && user) {
-      socket.to(room).emit('user_typing', {
-        room,
-        sender: user.username,
-        isTyping
-      });
-    }
-  });
-});
-
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', discordReady });
-});
-
-app.get(['/', '/supervised', '/unsupervised', '/fs'], (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+  socket.

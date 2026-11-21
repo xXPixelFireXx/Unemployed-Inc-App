@@ -8,37 +8,24 @@
 </head>
 <body>
   <div class="app-shell" id="appShell">
-    <!-- LEFT SIDEBAR (Desktop/Tablet) & FULL INBOX VIEW (Mobile /) -->
+    <!-- SIDEBAR / MOBILE INBOX -->
     <aside class="sidebar" id="sidebar">
-      <!-- Desktop macOS Header -->
       <div class="desktop-sidebar-top">
-        <div class="traffic-lights">
-          <span class="tl red"></span>
-          <span class="tl yellow"></span>
-          <span class="tl green"></span>
-        </div>
-        <button class="icon-circle-btn" id="editNameDesktopBtn" title="Set Display Name">
+        <span class="sidebar-brand">Channels</span>
+        <button class="icon-circle-btn" id="openAccountDesktopBtn" title="Account & Trusted Devices">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="4" y1="6" x2="20" y2="6"></line>
-            <line x1="7" y1="12" x2="17" y2="12"></line>
-            <line x1="10" y1="18" x2="14" y2="18"></line>
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
           </svg>
         </button>
       </div>
 
-      <!-- Mobile iOS Header (Matches Mobile2.jpeg) -->
       <div class="mobile-inbox-top">
-        <button class="ios-text-btn" id="editNameMobileBtn">Edit</button>
+        <button class="ios-text-btn" id="openAccountMobileBtn">Account</button>
         <h1 class="ios-nav-title">Channels</h1>
-        <button class="ios-icon-btn" id="composeMobileBtn" aria-label="Change Name">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
+        <span class="mobile-spacer"></span>
       </div>
 
-      <!-- Search Input -->
       <div class="search-wrapper">
         <div class="search-box">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" stroke-width="2.2">
@@ -49,7 +36,7 @@
         </div>
       </div>
 
-      <!-- Mobile Pinned Contacts Grid (Matches Mobile2.jpeg top 3 circles) -->
+      <!-- Mobile Pinned Contacts -->
       <div class="pinned-grid" id="pinnedGrid">
         <a href="/supervised" class="pinned-item" data-slug="supervised">
           <div class="pinned-avatar" style="background: #D8F3DC;">🛡️</div>
@@ -65,7 +52,7 @@
         </a>
       </div>
 
-      <!-- Contacts / Channels List (Matches desktop.jpeg & Mobile2.jpeg) -->
+      <!-- Channel Contacts List -->
       <nav class="contact-list" id="contactList">
         <a href="/supervised" class="contact-row" data-slug="supervised">
           <div class="contact-avatar" style="background: #D8F3DC;">
@@ -78,7 +65,7 @@
               <span class="contact-time" id="time-supervised">Now <span class="chevron">›</span></span>
             </div>
             <div class="contact-preview" id="preview-supervised">
-              Connected to #supervised on Discord
+              Bridge to #supervised on Discord
             </div>
           </div>
         </a>
@@ -94,7 +81,7 @@
               <span class="contact-time" id="time-unsupervised">Now <span class="chevron">›</span></span>
             </div>
             <div class="contact-preview" id="preview-unsupervised">
-              Connected to #unsupervised on Discord
+              Bridge to #unsupervised on Discord
             </div>
           </div>
         </a>
@@ -110,39 +97,36 @@
               <span class="contact-time" id="time-fs">Now <span class="chevron">›</span></span>
             </div>
             <div class="contact-preview" id="preview-fs">
-              Connected to #free-speech on Discord
+              Bridge to #free-speech on Discord
             </div>
           </div>
         </a>
       </nav>
 
-      <!-- Subtle User & Discord Bridge Status Footer -->
+      <!-- Account Footer -->
       <div class="sidebar-footer">
-        <span id="userLabel">You: <strong>Guest</strong></span>
-        <span class="status-pill" id="discordBridgePill">● Bridge Ready</span>
+        <div class="profile-summary">
+          <div class="profile-mini-pic" id="footerAvatar">?</div>
+          <div class="profile-texts">
+            <span id="footerUserText">Not signed in</span>
+            <small id="discordBridgeStatus" class="status-pill">● Checking Bridge...</small>
+          </div>
+        </div>
+        <button class="signout-btn hidden" id="signOutBtn">Sign Out</button>
       </div>
     </aside>
 
-    <!-- RIGHT CHAT PANE (Desktop/Tablet) & FULL THREAD VIEW (Mobile /supervised, /unsupervised, /fs) -->
+    <!-- MAIN CHAT PANE -->
     <main class="chat-pane" id="chatPane">
-      <!-- Floating Apple Glass Top Header (Matches desktop.jpeg & Mobile1.jpeg) -->
       <header class="floating-header">
-        <!-- Left Action: Mobile Back Button OR Desktop Compose Pill -->
         <div class="header-left">
-          <a href="/" class="glass-circle-btn mobile-only-flex" id="mobileBackBtn" aria-label="Back to Messages">
+          <a href="/" class="glass-circle-btn mobile-only-flex" id="mobileBackBtn" aria-label="Back">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </a>
-          <button class="glass-circle-btn desktop-only-flex" id="desktopNameBtn" title="Change Your Display Name">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-            </svg>
-          </button>
         </div>
 
-        <!-- Center Contact Avatar + Pill Name (Exact match to desktop.jpeg & Mobile1.jpeg) -->
         <div class="header-center-stack">
           <div class="header-contact-avatar" id="headerAvatar" style="background: #D8F3DC;">🛡️</div>
           <div class="header-contact-pill" id="headerTitlePill">
@@ -151,25 +135,23 @@
           </div>
         </div>
 
-        <!-- Right Action: FaceTime/Discord Bridge Status Circle -->
         <div class="header-right">
-          <button class="glass-circle-btn" id="infoBtn" title="Channel Info">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2">
-              <polygon points="23 7 16 12 23 17 23 7"></polygon>
-              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-            </svg>
-          </button>
+          <div class="legend-pills">
+            <span class="legend-dot red">You</span>
+            <span class="legend-dot black">App</span>
+            <span class="legend-dot purple">Discord</span>
+          </div>
         </div>
       </header>
 
-      <!-- Scrollable Messages Area -->
       <div class="messages-scroll" id="messagesScroll">
-        <div class="thread-timestamp" id="threadNotice">Today</div>
+        <div class="thread-timestamp">
+          Supports **bold**, *italic*, ***bold italic*** • @user, #channel, @everyone, @here
+        </div>
         <div class="messages-list" id="messagesList"></div>
 
-        <!-- Typing Bubble -->
         <div class="typing-row hidden" id="typingRow">
-          <div class="msg-avatar-placeholder"></div>
+          <div class="sender-mini-avatar" style="background:#141417;">•</div>
           <div class="typing-bubble">
             <span></span><span></span><span></span>
           </div>
@@ -177,34 +159,105 @@
         </div>
       </div>
 
-      <!-- Bottom Floating iMessage Composer (Matches desktop.jpeg & Mobile1.jpeg) -->
+      <!-- "+" Attachment Menu Popover -->
+      <div class="attach-menu hidden" id="attachMenu">
+        <button type="button" class="attach-option" id="pickMediaBtn">
+          <span>🖼️</span>
+          <div>
+            <strong>Photo / Video</strong>
+            <small>Upload image or video</small>
+          </div>
+        </button>
+        <button type="button" class="attach-option" id="pickGifBtn">
+          <span>✨</span>
+          <div>
+            <strong>GIPHY GIF</strong>
+            <small>Search & send animated GIFs</small>
+          </div>
+        </button>
+        <button type="button" class="attach-option" id="pickFileBtn">
+          <span>📎</span>
+          <div>
+            <strong>File (3h Link)</strong>
+            <small>Temporary link expires in 3 hours</small>
+          </div>
+        </button>
+      </div>
+
+      <input type="file" id="mediaFileInput" accept="image/*,video/*" class="hidden" />
+      <input type="file" id="anyFileInput" class="hidden" />
+
       <footer class="composer-bar">
-        <button type="button" class="plus-circle-btn" id="plusBtn" title="Set Your Name">+</button>
-        <form class="imessage-input-pill" id="messageForm">
+        <button type="button" class="plus-circle-btn" id="plusBtn" title="Attachments & GIFs">+</button>
+        <form class="message-input-pill" id="messageForm">
           <input
             type="text"
             id="messageInput"
-            placeholder="iMessage"
+            placeholder="Send Message"
             autocomplete="off"
             required
           />
-          <button type="submit" class="send-arrow-btn" id="sendBtn" aria-label="Send">
-            ↑
-          </button>
+          <button type="submit" class="send-arrow-btn" id="sendBtn" aria-label="Send">↑</button>
         </form>
       </footer>
     </main>
   </div>
 
-  <!-- Display Name Modal -->
-  <div class="modal-overlay hidden" id="nameModal">
-    <div class="ios-alert">
-      <h3>Your iMessage Name</h3>
-      <p>Choose the display name shown in the web chat and bridged to Discord.</p>
-      <input type="text" id="nameInput" placeholder="Enter your name" maxlength="24" />
-      <div class="ios-alert-actions">
-        <button type="button" id="cancelNameBtn" class="secondary">Cancel</button>
-        <button type="button" id="saveNameBtn" class="primary">Save</button>
+  <!-- GIPHY PICKER MODAL -->
+  <div class="modal-overlay hidden" id="giphyModal">
+    <div class="modal-card wide">
+      <div class="modal-top-bar">
+        <h3>Search GIPHY</h3>
+        <button type="button" class="close-x" id="closeGiphyBtn">✕</button>
+      </div>
+      <form id="giphySearchForm" class="giphy-search-row">
+        <input type="text" id="giphyQueryInput" placeholder="Search GIFs..." />
+        <button type="submit">Search</button>
+      </form>
+      <p class="hint-text" id="giphyNote"></p>
+      <div class="giphy-grid" id="giphyGrid"></div>
+    </div>
+  </div>
+
+  <!-- AUTH & TRUSTED DEVICES MODAL -->
+  <div class="modal-overlay hidden" id="authModal">
+    <div class="modal-card">
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" id="tabSignIn">Sign In</button>
+        <button type="button" class="auth-tab" id="tabSignUp">Sign Up</button>
+      </div>
+
+      <p class="auth-subtitle" id="authSubtitle">
+        Sign in to send messages as <strong>[USERNAME] ([FIRST-NAME])</strong> and remember this device.
+      </p>
+
+      <form id="authForm">
+        <div id="signUpFields" class="hidden">
+          <label class="field-label">First Name</label>
+          <input type="text" id="firstNameInput" placeholder="e.g. Alex" maxlength="32" />
+
+          <label class="field-label">Profile Picture (Optional)</label>
+          <div class="avatar-picker">
+            <div class="avatar-preview" id="avatarPreview">?</div>
+            <input type="file" id="avatarFileInput" accept="image/*" />
+          </div>
+        </div>
+
+        <label class="field-label">Username</label>
+        <input type="text" id="usernameInput" placeholder="e.g. alex_dev" maxlength="24" required />
+
+        <label class="field-label">Password</label>
+        <input type="password" id="passwordInput" placeholder="••••••••" required />
+
+        <div class="auth-error hidden" id="authError"></div>
+
+        <button type="submit" class="auth-submit-btn" id="authSubmitBtn">Sign In</button>
+      </form>
+
+      <!-- Trusted Devices List (when signed in) -->
+      <div class="devices-section hidden" id="devicesSection">
+        <h4>Remembered Devices</h4>
+        <div id="devicesList" class="devices-list"></div>
       </div>
     </div>
   </div>

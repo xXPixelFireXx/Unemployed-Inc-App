@@ -121,7 +121,7 @@
       <header class="floating-header">
         <div class="header-left">
           <a href="/" class="glass-circle-btn mobile-only-flex" id="mobileBackBtn" aria-label="Back">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </a>
@@ -136,11 +136,9 @@
         </div>
 
         <div class="header-right">
-          <div class="legend-pills">
-            <span class="legend-dot red">You</span>
-            <span class="legend-dot black">App</span>
-            <span class="legend-dot purple">Discord</span>
-          </div>
+          <button type="button" class="glass-circle-btn" id="darkModeToggle" title="Toggle Dark Mode" aria-label="Toggle Dark Mode">
+            <span id="darkModeIcon">🌙</span>
+          </button>
         </div>
       </header>
 
@@ -151,7 +149,7 @@
         <div class="messages-list" id="messagesList"></div>
 
         <div class="typing-row hidden" id="typingRow">
-          <div class="sender-mini-avatar" style="background:#141417;">•</div>
+          <div class="sender-mini-avatar" style="background:#8B1E1E;">•</div>
           <div class="typing-bubble">
             <span></span><span></span><span></span>
           </div>
@@ -219,42 +217,39 @@
     </div>
   </div>
 
-  <!-- AUTH & TRUSTED DEVICES MODAL -->
+  <!-- UNIFIED ACCOUNT / LOGIN MODAL -->
   <div class="modal-overlay hidden" id="authModal">
     <div class="modal-card">
-      <div class="auth-tabs">
-        <button type="button" class="auth-tab active" id="tabSignIn">Sign In</button>
-        <button type="button" class="auth-tab" id="tabSignUp">Sign Up</button>
+      <div class="modal-top-bar">
+        <h3>Chat Account</h3>
+        <button type="button" class="close-x hidden" id="closeAuthBtn">✕</button>
       </div>
 
       <p class="auth-subtitle" id="authSubtitle">
-        Sign in to send messages as <strong>[USERNAME] ([FIRST-NAME])</strong> and remember this device.
+        Enter your details below. If you already have an account or prior chat history, we'll sign you in automatically.
       </p>
 
       <form id="authForm">
-        <div id="signUpFields" class="hidden">
-          <label class="field-label">First Name</label>
-          <input type="text" id="firstNameInput" placeholder="e.g. Alex" maxlength="32" />
-
-          <label class="field-label">Profile Picture (Optional)</label>
-          <div class="avatar-picker">
-            <div class="avatar-preview" id="avatarPreview">?</div>
-            <input type="file" id="avatarFileInput" accept="image/*" />
-          </div>
-        </div>
-
         <label class="field-label">Username</label>
         <input type="text" id="usernameInput" placeholder="e.g. alex_dev" maxlength="24" required />
 
+        <label class="field-label">First Name</label>
+        <input type="text" id="firstNameInput" placeholder="e.g. Alex" maxlength="32" />
+
         <label class="field-label">Password</label>
-        <input type="password" id="passwordInput" placeholder="••••••••" required />
+        <input type="password" id="passwordInput" placeholder="Required for new accounts or sign-in" />
+
+        <label class="field-label">Profile Picture (Optional)</label>
+        <div class="avatar-picker">
+          <div class="avatar-preview" id="avatarPreview">?</div>
+          <input type="file" id="avatarFileInput" accept="image/*" />
+        </div>
 
         <div class="auth-error hidden" id="authError"></div>
 
-        <button type="submit" class="auth-submit-btn" id="authSubmitBtn">Sign In</button>
+        <button type="submit" class="auth-submit-btn" id="authSubmitBtn">Continue</button>
       </form>
 
-      <!-- Trusted Devices List (when signed in) -->
       <div class="devices-section hidden" id="devicesSection">
         <h4>Remembered Devices</h4>
         <div id="devicesList" class="devices-list"></div>

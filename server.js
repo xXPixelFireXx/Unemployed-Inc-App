@@ -26,9 +26,13 @@ const FILES_FILE = path.join(DATA_DIR, 'file_links.json');
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify([], null, 2));
-if (!fs.existsSync(FILES_FILE)) fs.writeFileSync(FILES_FILE, JSON.stringify({}, null, 2));
+try {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify([], null, 2));
+  if (!fs.existsSync(FILES_FILE)) fs.writeFileSync(FILES_FILE, JSON.stringify({}, null, 2));
+} catch (err) {
+  console.error('[Storage Init Warning]:', err.message);
+}
 
 function readJson(filePath, fallback) {
   try {
@@ -39,7 +43,11 @@ function readJson(filePath, fallback) {
 }
 
 function writeJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error('[Write JSON Warning]:', err.message);
+  }
 }
 
 function readUsers() {
@@ -59,25 +67,29 @@ function writeFileLinks(links) {
 }
 
 function cleanupExpiredFiles() {
-  const now = Date.now();
-  const links = readFileLinks();
-  let changed = false;
+  try {
+    const now = Date.now();
+    const links = readFileLinks();
+    let changed = false;
 
-  for (const [token, info] of Object.entries(links)) {
-    if (now > info.expiresAt) {
-      const fullPath = path.join(UPLOADS_DIR, info.storedName);
-      if (fs.existsSync(fullPath)) {
-        try {
-          fs.unlinkSync(fullPath);
-        } catch {}
+    for (const [token, info] of Object.entries(links)) {
+      if (now > info.expiresAt) {
+        const fullPath = path.join(UPLOADS_DIR, info.storedName);
+        if (fs.existsSync(fullPath)) {
+          try {
+            fs.unlinkSync(fullPath);
+          } catch {}
+        }
+        delete links[token];
+        changed = true;
       }
-      delete links[token];
-      changed = true;
     }
-  }
 
-  if (changed) {
-    writeFileLinks(links);
+    if (changed) {
+      writeFileLinks(links);
+    }
+  } catch (err) {
+    console.error('[Cleanup Warning]:', err.message);
   }
 }
 
@@ -225,8 +237,6 @@ app.get('/api/auth/me', (req, res) => {
   return res.json({ user: sanitizeUser(user) });
 });
 
-// Unified Sign-In / Sign-Up endpoint:
-// Checks if the user already has an account or prior chat history; signs in if found, or creates account if new.
 app.post('/api/auth/enter', async (req, res) => {
   try {
     const firstName = String(req.body.firstName || '').trim();
@@ -251,7 +261,6 @@ app.post('/api/auth/enter', async (req, res) => {
     const existingUser = users.find((u) => u.username.toLowerCase() === username.toLowerCase());
 
     if (existingUser) {
-      // Existing account: verify password (or allow if browser cache & firstName match when password omitted)
       let authenticated = false;
       if (password) {
         authenticated = await bcrypt.compare(password, existingUser.passwordHash);
@@ -283,7 +292,6 @@ app.post('/api/auth/enter', async (req, res) => {
       return res.json({ user: sanitizeUser(existingUser), mode: 'signin' });
     }
 
-    // New account: requires firstName and password
     if (!firstName) {
       return res.status(400).json({ error: 'First name is required for a new account.' });
     }
@@ -598,9 +606,12 @@ const discordClient = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.MessageContent
   ]
+});
+
+discordClient.on('error', (err) => {
+  console.error('[Discord Client Error]:', err.message);
 });
 
 if (DISCORD_TOKEN) {
@@ -691,4 +702,97 @@ io.on('connection', (socket) => {
     previews
   });
 
-  socket.
+  socket.on('join_room', (roomSlug) => {
+    if (!CHANNELS[roomSlug]) return;
+    socket.join(roomSlug);
+    socket.emit('history', {
+      room: roomSlug,
+      messages: messageHistory[roomSlug] || []
+    });
+  });
+
+  socket.on('send_message', async (data = {}) => {
+    const user = resolveSocketUser(socket, data);
+    if (!user) {
+      socket.emit('auth_required');
+      return;
+    }
+
+    const room = data.room;
+    const channelConfig = CHANNELS[room];
+    const cleanText = String(data.text || '').trim();
+    const attachments = Array.isArray(data.attachments) ? data.attachments.slice(0, 5) : [];
+
+    if (!channelConfig || (!cleanText && attachments.length === 0)) return;
+
+    const payload = {
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      room,
+      sender: user.username,
+      firstName: user.firstName,
+      avatar: user.avatarUrl || null,
+      text: cleanText,
+      attachments,
+      source: 'app',
+      timestamp: Date.now()
+    };
+
+    saveMessage(room, payload);
+    io.to(room).emit('chat_message', payload);
+    io.emit('thread_preview', payload);
+
+    if (discordReady && channelConfig.discordChannelId) {
+      try {
+        const discordChannel = await discordClient.channels.fetch(channelConfig.discordChannelId);
+        if (discordChannel) {
+          if (discordChannel.guild) await cacheGuildDirectory(discordChannel.guild);
+          const translatedBody = translateAppPingsToDiscord(cleanText);
+          const attachmentLines = attachments
+            .map((att) => (att.fullUrl ? att.fullUrl : `${att.name || 'File'}: ${att.url}`))
+            .join('\n');
+
+          const combined = [translatedBody, attachmentLines].filter(Boolean).join('\n');
+          await discordChannel.send({
+            content: `**[${user.username} (${user.firstName})]:** ${combined}`.slice(0, 1990),
+            allowedMentions: { parse: ['users', 'roles', 'everyone'] }
+          });
+        }
+      } catch (err) {
+        console.error(`[Discord Relay Error -> ${channelConfig.name}]:`, err.message);
+      }
+    }
+  });
+
+  socket.on('typing', (data = {}) => {
+    const user = resolveSocketUser(socket, data);
+    if (CHANNELS[data.room] && user) {
+      socket.to(data.room).emit('user_typing', {
+        room: data.room,
+        sender: user.username,
+        isTyping: Boolean(data.isTyping)
+      });
+    }
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', discordReady });
+});
+
+const spaHandler = (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+};
+
+app.get('/', spaHandler);
+app.get('/supervised', spaHandler);
+app.get('/unsupervised', spaHandler);
+app.get('/fs', spaHandler);
+
+server.on('error', (err) => {
+  console.error('[HTTP Server Error]:', err.message);
+});
+
+const PORT = Number(process.env.PORT) || 3000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server listening on port ${PORT}`);
+});
